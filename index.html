@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Amy's Day</title><meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Amy's Day">
+<meta name="theme-color" content="#0f1020">
+<style>
+:root{--bg:#0f1020;--card:#1a1b33;--ac:#7c5cff;--tx:#eef;--mu:#99a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px -apple-system,system-ui,sans-serif;
+padding:calc(env(safe-area-inset-top) + 12px) calc(env(safe-area-inset-right) + 14px) calc(env(safe-area-inset-bottom) + 80px) calc(env(safe-area-inset-left) + 14px);max-width:720px;margin:auto}
+h1{font-size:26px;margin:4px 0}.mu{color:var(--mu);font-size:13px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#15162b;padding-bottom:env(safe-area-inset-bottom);border-top:1px solid #2a2b4a}
+nav button{flex:1;padding:14px;background:none;border:0;color:var(--mu);font-size:15px}nav button.on{color:var(--ac);font-weight:700}
+.card{background:var(--card);border-radius:14px;padding:12px 14px;margin:10px 0}.day{font-weight:700;margin-bottom:6px}
+.ev{display:flex;gap:10px;padding:6px 0;border-top:1px solid #2a2b4a}.ev:first-of-type{border:0}.tm{min-width:92px;color:var(--ac);font-size:14px}
+.ad{background:#2c2560;border-radius:6px;padding:1px 6px;font-size:12px}
+input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2b4a;background:#15162b;color:var(--tx);font-size:16px}
+.row{display:flex;gap:8px;align-items:center}.btn{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:12px 14px;font-size:15px}
+.td{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #2a2b4a}.td span{flex:1}.td.done span{text-decoration:line-through;color:var(--mu)}
+.td input{width:22px;height:22px}.x{background:none;border:0;color:var(--mu);font-size:20px}
+.dn{display:flex;justify-content:space-between;align-items:center}.dn button{background:none;border:0;color:var(--ac);font-size:22px;padding:6px 12px}
+</style></head><body>
+<h1>Amy's Day</h1><div class="mu" id="today"></div>
+<section id="todo"></section><section id="cal" hidden></section>
+<nav><button id="bt" class="on">To-do</button><button id="bc">Calendar</button></nav>
+<script>
+const TZ='Africa/Johannesburg',$=s=>document.querySelector(s);
+const ymd=d=>new Intl.DateTimeFormat('en-CA',{timeZone:TZ}).format(d);
+const nice=k=>new Date(k+'T12:00:00+02:00').toLocaleDateString('en-ZA',{timeZone:TZ,weekday:'long',day:'numeric',month:'short'});
+const tm=s=>new Date(s).toLocaleTimeString('en-ZA',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false});
+$('#today').textContent=nice(ymd(new Date()));
+// ---- To-dos (localStorage, per device) ----
+let T=JSON.parse(localStorage.amysTodos||'{}'),view=ymd(new Date());
+const save=()=>localStorage.amysTodos=JSON.stringify(T);
+function rollover(){const today=ymd(new Date());if(localStorage.amysLastRoll===today)return;
+ for(const k of Object.keys(T))if(k<today){const left=T[k].filter(i=>!i.d);if(left.length){T[today]=[...(T[today]||[]),...left.map(i=>({...i,from:i.from||k}))];T[k]=T[k].filter(i=>i.d)}}
+ localStorage.amysLastRoll=today;save()}
+function shift(n){const d=new Date(view+'T12:00:00+02:00');d.setDate(d.getDate()+n);view=ymd(d);drawTodo()}
+function drawTodo(){const L=T[view]||[];
+ $('#todo').innerHTML=`<div class="card"><div class="dn"><button onclick="shift(-1)">‹</button><b>${view===ymd(new Date())?'Today · ':''}${nice(view)}</b><button onclick="shift(1)">›</button></div>
+ <form class="row" onsubmit="add(event)"><input id="ni" placeholder="Add a task…" autocomplete="off"><button class="btn">Add</button></form>
+ ${L.map((i,n)=>`<div class="td ${i.d?'done':''}"><input type="checkbox" ${i.d?'checked':''} onchange="tog(${n})"><span></span><button class="x" onclick="del(${n})">×</button></div>`).join('')||'<p class="mu">Nothing yet.</p>'}
+ </div><p class="mu">Unfinished tasks move to the next day automatically. Saved on this device only.</p>`;
+ document.querySelectorAll('.td span').forEach((s,n)=>s.textContent=L[n].t+(L[n].from?` (from ${L[n].from.slice(5)})`:''))}
+function add(e){e.preventDefault();const v=$('#ni').value.trim();if(!v)return;(T[view]=T[view]||[]).push({t:v,d:false});save();drawTodo();$('#ni').focus()}
+function tog(n){T[view][n].d=!T[view][n].d;save();drawTodo()}
+function del(n){T[view].splice(n,1);save();drawTodo()}
+// ---- Calendar (encrypted JSON, unlocked with PIN) ----
+const b=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function dec(pin){const r=await fetch('data/calendar.enc.json',{cache:'no-store'}).then(r=>r.json());
+ const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveKey']);
+ const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b(r.salt),iterations:600000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+ return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b(r.iv)},k,b(r.ct))))}
+async function drawCal(){const pin=localStorage.amysPin;
+ if(!pin){$('#cal').innerHTML=`<div class="card"><p>Enter your calendar PIN</p><form class="row" onsubmit="event.preventDefault();localStorage.amysPin=$('#pi').value;drawCal()"><input id="pi" inputmode="numeric" type="password"><button class="btn">Unlock</button></form></div>`;return}
+ $('#cal').innerHTML='<p class="mu">Loading…</p>';let d;
+ try{d=await dec(pin)}catch(e){delete localStorage.amysPin;$('#cal').innerHTML='';await drawCal();$('#cal').insertAdjacentHTML('afterbegin','<p class="mu">Wrong PIN or offline.</p>');return}
+ const today=ymd(new Date()),G={};
+ for(const e of d.events){let k=e.a?e.s:ymd(new Date(e.s));if(e.a&&k<today&&e.e>today)k=today;if(k<today)continue;(G[k]=G[k]||[]).push(e)}
+ const ks=Object.keys(G).sort();$('#cal').innerHTML=(ks.length?'':'<p class="mu">No upcoming events.</p>')+ks.map(k=>`<div class="card"><div class="day">${k===today?'Today · ':''}${nice(k)}</div>${G[k].sort((x,y)=>(y.a-x.a)||x.s.localeCompare(y.s)).map(e=>`<div class="ev"><div class="tm">${e.a?'<span class="ad">All day</span>':tm(e.s)+'–'+tm(e.e)}</div><div class="t"></div></div>`).join('')}</div>`).join('')+`<p class="mu">Updated ${new Date(d.updated).toLocaleString('en-ZA',{timeZone:TZ})} SAST</p>`;
+ const ts=document.querySelectorAll('#cal .t');let n=0;ks.forEach(k=>G[k].forEach(e=>ts[n++].textContent=e.t))}
+$('#bt').onclick=()=>{$('#todo').hidden=false;$('#cal').hidden=true;$('#bt').className='on';$('#bc').className=''};
+$('#bc').onclick=()=>{$('#todo').hidden=true;$('#cal').hidden=false;$('#bc').className='on';$('#bt').className='';drawCal()};
+rollover();drawTodo();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+</script></body></html>
