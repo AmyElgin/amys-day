@@ -37,30 +37,38 @@ function rollover(){const today=ymd(new Date());if(localStorage.amysLastRoll===t
  for(const k of Object.keys(T))if(k<today){const left=T[k].filter(i=>!i.d);if(left.length){T[today]=[...(T[today]||[]),...left.map(i=>({...i,from:i.from||k}))];T[k]=T[k].filter(i=>i.d)}}
  localStorage.amysLastRoll=today;save()}
 function shift(n){const d=new Date(view+'T12:00:00+02:00');d.setDate(d.getDate()+n);view=ymd(d);drawTodo()}
-function drawTodo(){const L=T[view]||[];
+// ---- Auto to-dos (encrypted data/todos.enc.json, ticks stored by id) ----
+let AUTO=[],AD=JSON.parse(localStorage.amysAutoDone||'{}');
+async function loadAuto(){const pin=localStorage.amysPin;if(!pin)return;
+ try{const d=await dec(pin,'data/todos.enc.json');AUTO=(d.date===ymd(new Date())&&Array.isArray(d.items))?d.items:[]}catch(e){AUTO=[]}drawTodo()}
+function togA(id){AD[id]=!AD[id];if(!AD[id])delete AD[id];localStorage.amysAutoDone=JSON.stringify(AD);drawTodo()}
+function drawTodo(){const L=T[view]||[],A=view===ymd(new Date())?AUTO:[];
  $('#todo').innerHTML=`<div class="card"><div class="dn"><button onclick="shift(-1)">‹</button><b>${view===ymd(new Date())?'Today · ':''}${nice(view)}</b><button onclick="shift(1)">›</button></div>
  <form class="row" onsubmit="add(event)"><input id="ni" placeholder="Add a task…" autocomplete="off"><button class="btn">Add</button></form>
- ${L.map((i,n)=>`<div class="td ${i.d?'done':''}"><input type="checkbox" ${i.d?'checked':''} onchange="tog(${n})"><span></span><button class="x" onclick="del(${n})">×</button></div>`).join('')||'<p class="mu">Nothing yet.</p>'}
+ ${A.map((i,n)=>`<div class="td auto ${AD[i.id]?'done':''}"><input type="checkbox" ${AD[i.id]?'checked':''} data-id="${n}" onchange="togA(A_[this.dataset.id])"><span class="as"></span></div>`).join('')}
+ ${!localStorage.amysPin&&view===ymd(new Date())?'<p class="mu">Unlock the Calendar tab with your PIN to see today\'s planned tasks.</p>':''}
+ ${L.map((i,n)=>`<div class="td ${i.d?'done':''}"><input type="checkbox" ${i.d?'checked':''} onchange="tog(${n})"><span></span><button class="x" onclick="del(${n})">×</button></div>`).join('')||(A.length?'':'<p class="mu">Nothing yet.</p>')}
  </div><p class="mu">Unfinished tasks move to the next day automatically. Saved on this device only.</p>`;
- document.querySelectorAll('.td span').forEach((s,n)=>s.textContent=L[n].t+(L[n].from?` (from ${L[n].from.slice(5)})`:''))}
+ window.A_=A.map(i=>i.id);document.querySelectorAll('.td.auto span.as').forEach((s,n)=>s.textContent=A[n].text);
+ document.querySelectorAll('.td:not(.auto) span').forEach((s,n)=>s.textContent=L[n].t+(L[n].from?` (from ${L[n].from.slice(5)})`:''))}
 function add(e){e.preventDefault();const v=$('#ni').value.trim();if(!v)return;(T[view]=T[view]||[]).push({t:v,d:false});save();drawTodo();$('#ni').focus()}
 function tog(n){T[view][n].d=!T[view][n].d;save();drawTodo()}
 function del(n){T[view].splice(n,1);save();drawTodo()}
 // ---- Calendar (encrypted JSON, unlocked with PIN) ----
 const b=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-async function dec(pin){const r=await fetch('data/calendar.enc.json',{cache:'no-store'}).then(r=>r.json());
+async function dec(pin,f='data/calendar.enc.json'){const r=await fetch(f,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveKey']);
  const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b(r.salt),iterations:600000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b(r.iv)},k,b(r.ct))))}
 async function drawCal(){const pin=localStorage.amysPin;
  if(!pin){$('#cal').innerHTML=`<div class="card"><p>Enter your calendar PIN</p><form class="row" onsubmit="event.preventDefault();localStorage.amysPin=$('#pi').value;drawCal()"><input id="pi" inputmode="numeric" type="password"><button class="btn">Unlock</button></form></div>`;return}
  $('#cal').innerHTML='<p class="mu">Loading…</p>';let d;
- try{d=await dec(pin)}catch(e){delete localStorage.amysPin;$('#cal').innerHTML='';await drawCal();$('#cal').insertAdjacentHTML('afterbegin','<p class="mu">Wrong PIN or offline.</p>');return}
+ try{d=await dec(pin);loadAuto()}catch(e){delete localStorage.amysPin;$('#cal').innerHTML='';await drawCal();$('#cal').insertAdjacentHTML('afterbegin','<p class="mu">Wrong PIN or offline.</p>');return}
  const today=ymd(new Date()),G={};
  for(const e of d.events){let k=e.a?e.s:ymd(new Date(e.s));if(e.a&&k<today&&e.e>today)k=today;if(k<today)continue;(G[k]=G[k]||[]).push(e)}
  const ks=Object.keys(G).sort();$('#cal').innerHTML=(ks.length?'':'<p class="mu">No upcoming events.</p>')+ks.map(k=>`<div class="card"><div class="day">${k===today?'Today · ':''}${nice(k)}</div>${G[k].sort((x,y)=>(y.a-x.a)||x.s.localeCompare(y.s)).map(e=>`<div class="ev"><div class="tm">${e.a?'<span class="ad">All day</span>':tm(e.s)+'–'+tm(e.e)}</div><div class="t"></div></div>`).join('')}</div>`).join('')+`<p class="mu">Updated ${new Date(d.updated).toLocaleString('en-ZA',{timeZone:TZ})} SAST</p>`;
  const ts=document.querySelectorAll('#cal .t');let n=0;ks.forEach(k=>G[k].forEach(e=>ts[n++].textContent=e.t))}
 $('#bt').onclick=()=>{$('#todo').hidden=false;$('#cal').hidden=true;$('#bt').className='on';$('#bc').className=''};
 $('#bc').onclick=()=>{$('#todo').hidden=true;$('#cal').hidden=false;$('#bc').className='on';$('#bt').className='';drawCal()};
-rollover();drawTodo();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+rollover();drawTodo();loadAuto();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
 </script></body></html>
